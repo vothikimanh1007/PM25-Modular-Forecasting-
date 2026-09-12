@@ -4,62 +4,61 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import tensorflow as tf
-from tensorflow.keras.layers import Dense, Dropout, Input, LSTM
 from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Input, LSTM, Dense, Dropout
 
 st.set_page_config(page_title="PM2.5 Early Warning Demo", layout="wide")
 st.title("PM2.5 Hourly Forecasting System")
 st.write("Modular Deep Learning (LSTM) & XGBoost Inference Gateway")
 
-# Absolute path resolution
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SAVED_DIR = os.path.join(BASE_DIR, "src", "models", "saved")
 
+# Renamed weights filename
 WEIGHTS_PATH = os.path.join(SAVED_DIR, "lstm_model_weights.h5")
 MODEL_H5_PATH = os.path.join(SAVED_DIR, "lstm_model.h5")
 FEAT_SCALER_PATH = os.path.join(SAVED_DIR, "feature_scaler.pkl")
 TARGET_SCALER_PATH = os.path.join(SAVED_DIR, "target_scaler.pkl")
+XGB_FEATURES_PATH = os.path.join(SAVED_DIR, "xgb_features.pkl")
 
-
-def build_lstm_architecture(timesteps=24, features=15):
-  """Rebuilds the exact architecture matching the verified paper training setup."""
-  model = Sequential([
-      Input(shape=(timesteps, features)),
-      LSTM(64, return_sequences=True),
-      Dropout(0.2),
-      LSTM(32),
-      Dropout(0.2),
-      Dense(16, activation="relu"),
-      Dense(1),
-  ])
-  return model
-
+def build_lstm_architecture(timesteps=24, features=14):
+    model = Sequential([
+        Input(shape=(timesteps, features)),
+        LSTM(64, return_sequences=True),
+        Dropout(0.2),
+        LSTM(32),
+        Dropout(0.2),
+        Dense(16, activation="relu"),
+        Dense(1)
+    ])
+    return model
 
 @st.cache_resource
 def load_models():
-  # Determine number of features from scaler if available
-  feat_scaler = joblib.load(FEAT_SCALER_PATH)
-  target_scaler = joblib.load(TARGET_SCALER_PATH)
+    scaler = joblib.load(FEAT_SCALER_PATH)
+    
+    # Expected feature list from training
+    if os.path.exists(XGB_FEATURES_PATH):
+        xgb_features = joblib.load(XGB_FEATURES_PATH)
+    else:
+        xgb_features = []
 
-  num_features = getattr(feat_scaler, "n_features_in_", 15)
-  lstm = build_lstm_architecture(timesteps=24, features=num_features)
+    # Total columns = pm2.5 (index 0) + remaining features
+    total_features = getattr(scaler, "n_features_in_", len(xgb_features) + 1)
+    lstm = build_lstm_architecture(timesteps=24, features=total_features)
 
-  # Load weights from either lstm_model_weights.h5 or the saved lstm_model.h5
-  target_weights = (
-      WEIGHTS_PATH if os.path.exists(WEIGHTS_PATH) else MODEL_H5_PATH
-  )
-  if not os.path.exists(target_weights):
-    raise FileNotFoundError(f"Weights file not found at: {target_weights}")
+    weights_file = WEIGHTS_PATH if os.path.exists(WEIGHTS_PATH) else MODEL_H5_PATH
+    if not os.path.exists(weights_file):
+        raise FileNotFoundError(f"Model weights not found at: {weights_file}")
 
-  lstm.load_weights(target_weights)
-  return lstm, feat_scaler, target_scaler
-
+    lstm.load_weights(weights_file)
+    return lstm, scaler, xgb_features
 
 try:
-  lstm_model, feat_scaler, target_scaler = load_models()
-  st.sidebar.success("Artifacts loaded successfully.")
+    lstm_model, scaler, xgb_features = load_models()
+    st.sidebar.success("Artifacts loaded successfully.")
 except Exception as e:
-  st.sidebar.error(f"Error loading models: {e}")
+    st.sidebar.error(f"Error loading models: {e}")
 
 st.sidebar.header("Current Meteorological Telemetry")
 temp = st.sidebar.slider("Temperature (°C)", -20.0, 40.0, 15.0)
@@ -70,56 +69,53 @@ snow = st.sidebar.slider("Cumulated Snow (hours)", 0.0, 20.0, 0.0)
 rain = st.sidebar.slider("Cumulated Rain (hours)", 0.0, 50.0, 0.0)
 wind_dir = st.sidebar.selectbox("Wind Direction", ["NW", "SE", "NE", "cv"])
 
-# Generate synthetic 24-step sequence ending with slider inputs
 if st.button("Run PM2.5 Forecast"):
-  # Default prior PM2.5 seed to feed autoregressive lookback
-  baseline_pm25 = 50.0
+    input_mapping = {
+        "dew": dew, "DEWP": dew,
+        "temp": temp, "TEMP": temp,
+        "press": press, "PRES": press,
+        "wnd_spd": wnd_spd, "Iws": wnd_spd,
+        "snow": snow, "Is": snow,
+        "rain": rain, "Ir": rain,
+        "cbwd_NE": 1 if wind_dir == "NE" else 0,
+        "cbwd_NW": 1 if wind_dir == "NW" else 0,
+        "cbwd_SE": 1 if wind_dir == "SE" else 0,
+        "cbwd_cv": 1 if wind_dir == "cv" else 0,
+        "month": 6
+    }
 
-  base_step = {
-      "pm2.5": baseline_pm25,
-      "DEWP": dew,
-      "TEMP": temp,
-      "PRES": press,
-      "Iws": wnd_spd,
-      "Is": snow,
-      "Ir": rain,
-      "cbwd_NE": 1 if wind_dir == "NE" else 0,
-      "cbwd_NW": 1 if wind_dir == "NW" else 0,
-      "cbwd_SE": 1 if wind_dir == "SE" else 0,
-      "cbwd_cv": 1 if wind_dir == "cv" else 0,
-  }
+    all_cols = ["pm2.5"] + [col for col in xgb_features if col != "pm2.5"]
 
-  sequence_df = pd.DataFrame([base_step for _ in range(24)])
+    step_data = {}
+    for col in all_cols:
+        if col == "pm2.5":
+            step_data[col] = 50.0
+        else:
+            step_data[col] = input_mapping.get(col, 0.0)
 
-  # Align columns to feature_scaler expectation
-  if hasattr(feat_scaler, "feature_names_in_"):
-    for col in feat_scaler.feature_names_in_:
-      if col not in sequence_df.columns:
-        sequence_df[col] = 0
-    sequence_df = sequence_df[feat_scaler.feature_names_in_]
+    sequence_df = pd.DataFrame([step_data for _ in range(24)])
 
-  scaled_seq = feat_scaler.transform(sequence_df)
-  inp = np.expand_dims(scaled_seq, axis=0)
+    if sequence_df.shape[1] < scaler.n_features_in_:
+        missing_count = scaler.n_features_in_ - sequence_df.shape[1]
+        for i in range(missing_count):
+            sequence_df[f"extra_{i}"] = 0.0
+    elif sequence_df.shape[1] > scaler.n_features_in_:
+        sequence_df = sequence_df.iloc[:, :scaler.n_features_in_]
 
-  scaled_pred = lstm_model.predict(inp, verbose=0)
+    scaled_seq = scaler.transform(sequence_df.values)
+    model_input = np.expand_dims(scaled_seq, axis=0)
 
-  # Inverse transform target using target scaler parameters
-  if hasattr(target_scaler, "var_"):
-    pred_val = float(
-        scaled_pred[0][0] * np.sqrt(target_scaler.var_[0])
-        + target_scaler.mean_[0]
-    )
-  else:
-    pred_val = float(target_scaler.inverse_transform(scaled_pred)[0][0])
+    scaled_pred = lstm_model.predict(model_input, verbose=0)
 
-  pred_val = max(0.0, pred_val)
+    pred_val = float(scaled_pred[0][0] * np.sqrt(scaler.var_[0]) + scaler.mean_[0])
+    pred_val = max(0.0, pred_val)
 
-  col1, col2 = st.columns(2)
-  col1.metric("Predicted PM2.5", f"{pred_val:.1f} µg/m³")
+    col1, col2 = st.columns(2)
+    col1.metric("Predicted PM2.5", f"{pred_val:.1f} µg/m³")
 
-  if pred_val <= 35:
-    col2.success("Air Quality Level: Good / Moderate")
-  elif pred_val <= 75:
-    col2.warning("Air Quality Level: Unhealthy for Sensitive Groups")
-  else:
-    col2.error("Air Quality Level: Hazardous")
+    if pred_val <= 35:
+        col2.success("Air Quality Level: Good / Moderate")
+    elif pred_val <= 75:
+        col2.warning("Air Quality Level: Unhealthy for Sensitive Groups")
+    else:
+        col2.error("Air Quality Level: Hazardous")
