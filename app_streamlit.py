@@ -119,43 +119,56 @@ if st.button("Run PM2.5 Forecast & Plot Telemetry"):
     if lstm_model is None or scaler is None:
         st.error("Model artifacts not loaded.")
     else:
-        # Map user inputs across all common naming conventions
+        # Dynamic physical trajectory factor mapping
+        if wind_dir == "NW":
+            dispersion_rate = -1.2 * (wnd_spd / 5.0)
+            cum_wind = wnd_spd * 12.0
+        elif wind_dir in ["SE", "cv"]:
+            dispersion_rate = 0.5 * max(0.5, (4.0 - wnd_spd))
+            cum_wind = max(1.0, wnd_spd * 3.0)
+        else:
+            dispersion_rate = -0.2
+            cum_wind = wnd_spd * 6.0
+
+        if rain > 0:
+            dispersion_rate -= (rain * 0.5)
+
         input_mapping = {
-            # Calendar variables (prevents the -1422 sigma saturation bug)
             "year": 2014,
             "month": 12 if "Winter" in selected_case else (7 if "Storm" in selected_case else 5),
             "day": 15,
             "hour": 14,
-            # Weather variables
             "dew": dew, "DEWP": dew,
             "temp": temp, "TEMP": temp,
             "press": press, "PRES": press,
-            "wnd_spd": wnd_spd, "Iws": wnd_spd,
+            "wnd_spd": cum_wind, "Iws": cum_wind,
             "snow": snow, "Is": snow,
             "rain": rain, "Ir": rain,
-            # Wind direction one-hot dummies
             "cbwd_NE": 1 if wind_dir == "NE" else 0,
             "cbwd_NW": 1 if wind_dir == "NW" else 0,
             "cbwd_SE": 1 if wind_dir == "SE" else 0,
             "cbwd_cv": 1 if wind_dir == "cv" else 0
         }
 
-        # Build feature sequence matching training order
         all_cols = ["pm2.5"] + [col for col in xgb_features if col != "pm2.5"]
 
-        noise = np.linspace(-10, 0, 24)
+        # Simulate realistic dynamic trajectory over the last 24 hours
         history_records = []
+        trajectory = []
+        sim_val = float(baseline_pm25)
+        
+        for step in range(24):
+            sim_val = max(5.0, sim_val + dispersion_rate + np.sin(step / 2.0) * 1.5)
+            trajectory.append(sim_val)
 
         for i in range(24):
             step_dict = {}
             for col_idx, col in enumerate(all_cols):
                 if col == "pm2.5":
-                    # Trajectory converging to the case baseline
-                    step_dict[col] = max(5.0, baseline_pm25 + noise[i] + np.sin(i / 2) * 2)
+                    step_dict[col] = trajectory[i]
                 elif col in input_mapping:
                     step_dict[col] = input_mapping[col]
                 else:
-                    # Fallback: Default to training mean so z-score = 0.0
                     step_dict[col] = scaler.mean_[col_idx] if hasattr(scaler, "mean_") else 0.0
 
             history_records.append(step_dict)
