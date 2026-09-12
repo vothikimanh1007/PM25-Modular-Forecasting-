@@ -10,12 +10,19 @@ from tensorflow.keras.layers import Input, LSTM, Dense, Dropout
 
 st.set_page_config(page_title="PM2.5 Early Warning System", layout="wide")
 
-# Custom CSS for compact UI & better screenshot layout
+# Custom CSS: Mở rộng sidebar bên trái và tinh chỉnh cỡ chữ bên phải cho gọn gàng
 st.markdown("""
 <style>
+    /* Mở rộng độ rộng panel bên trái (Sidebar) */
+    [data-testid="stSidebar"] {
+        min-width: 380px;
+        max-width: 380px;
+    }
+    /* Thu nhỏ cỡ chữ phần nội dung chính cho cân đối, không bị quá to */
     .block-container { padding-top: 1.5rem; padding-bottom: 1.5rem; }
-    h1 { font-size: 1.8rem !important; }
-    .stMetric { background-color: #f8f9fa; padding: 10px; border-radius: 5px; border: 1px solid #e9ecef; }
+    h1 { font-size: 1.6rem !important; }
+    p, li, span { font-size: 0.92rem !important; }
+    .stMetric { background-color: #f8f9fa; padding: 8px; border-radius: 5px; border: 1px solid #e9ecef; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -105,7 +112,6 @@ case_cfg = REPRESENTATIVE_CASES[selected_case]
 
 if case_cfg is not None:
     st.sidebar.caption(f"ℹ️ {case_cfg['desc']}")
-    # 2-column layout inside sidebar to make elements compact and short
     col_s1, col_s2 = st.sidebar.columns(2)
     with col_s1:
         temp = st.number_input("Temp (°C)", -20.0, 40.0, case_cfg["temp"])
@@ -227,7 +233,7 @@ else:
         col_m3.error("Air Quality Index: Very Unhealthy / Hazardous")
 
     st.subheader("Temporal Sequence & 1-Hour Horizon Prediction Trajectory")
-    fig, ax = plt.subplots(figsize=(11, 3.8))
+    fig, ax = plt.subplots(figsize=(11, 3.6))
     timeline_past = list(range(-23, 1))
     past_pm25 = seq_df["pm2.5"].values
 
