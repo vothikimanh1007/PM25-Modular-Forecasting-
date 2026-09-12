@@ -33,7 +33,7 @@ The framework is divided into four independent microservices/phases:
 
 1. Clone this repository:
    ```bash
-   git clone [https://github.com/YourUsername/PM25-Modular-Forecasting.git](https://github.com/YourUsername/PM25-Modular-Forecasting.git)
+   git clone https://anonymous.4open.science/r/PM25-Modular-Forecasting--B88A
    cd PM25-Modular-Forecasting
 2. Create a virtual environment and install dependencies:
    ```bash
@@ -60,16 +60,16 @@ Note: Feature importance analysis via XGBoost confirmed that meteorological vari
 
 If you use this code or framework in your research, please cite our paper:
   ```bibtex
-  @inproceedings{Vo2026PM25,
+  @inproceedings{,
    title={From Knowledge Mapping to Modular Systems: An API-Ready Deep Learning Architecture for PM2.5 Forecasting},
-   author={Vo, Thi Kim Anh},
+   author={},
    booktitle={...},
    year={2026},
-   organization={IEEE}
+   organization={}
  }
 
 ## Contact
-For questions or collaboration opportunities, please contact Vo Thi Kim Anh.
+For questions or collaboration opportunities, please contact ...
 
 ### 3. Next Steps to integrate into your Paper:
 Once you create this repository on GitHub, add a sentence to your paper's Introduction or Methodology section, such as: 
