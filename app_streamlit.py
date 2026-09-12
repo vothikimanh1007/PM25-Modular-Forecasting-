@@ -119,37 +119,50 @@ if st.button("Run PM2.5 Forecast & Plot Telemetry"):
     if lstm_model is None or scaler is None:
         st.error("Model artifacts not loaded.")
     else:
+        # Map user inputs across all common naming conventions
         input_mapping = {
+            # Calendar variables (prevents the -1422 sigma saturation bug)
+            "year": 2014,
+            "month": 12 if "Winter" in selected_case else (7 if "Storm" in selected_case else 5),
+            "day": 15,
+            "hour": 14,
+            # Weather variables
             "dew": dew, "DEWP": dew,
             "temp": temp, "TEMP": temp,
             "press": press, "PRES": press,
             "wnd_spd": wnd_spd, "Iws": wnd_spd,
             "snow": snow, "Is": snow,
             "rain": rain, "Ir": rain,
+            # Wind direction one-hot dummies
             "cbwd_NE": 1 if wind_dir == "NE" else 0,
             "cbwd_NW": 1 if wind_dir == "NW" else 0,
             "cbwd_SE": 1 if wind_dir == "SE" else 0,
-            "cbwd_cv": 1 if wind_dir == "cv" else 0,
-            "month": 11 if "Winter" in selected_case else (7 if "Storm" in selected_case else 5)
+            "cbwd_cv": 1 if wind_dir == "cv" else 0
         }
 
+        # Build feature sequence matching training order
         all_cols = ["pm2.5"] + [col for col in xgb_features if col != "pm2.5"]
 
-        # Synthesize 24-step historical trajectory with variance
-        noise = np.linspace(-15, 0, 24)
+        noise = np.linspace(-10, 0, 24)
         history_records = []
+
         for i in range(24):
             step_dict = {}
-            for col in all_cols:
+            for col_idx, col in enumerate(all_cols):
                 if col == "pm2.5":
-                    step_dict[col] = max(5.0, baseline_pm25 + noise[i] + np.sin(i / 2) * 4)
+                    # Trajectory converging to the case baseline
+                    step_dict[col] = max(5.0, baseline_pm25 + noise[i] + np.sin(i / 2) * 2)
+                elif col in input_mapping:
+                    step_dict[col] = input_mapping[col]
                 else:
-                    step_dict[col] = input_mapping.get(col, 0.0)
+                    # Fallback: Default to training mean so z-score = 0.0
+                    step_dict[col] = scaler.mean_[col_idx] if hasattr(scaler, "mean_") else 0.0
+
             history_records.append(step_dict)
 
         seq_df = pd.DataFrame(history_records)
 
-        # Dimension alignment
+        # Ensure exact column dimensionality
         if seq_df.shape[1] < scaler.n_features_in_:
             for i in range(scaler.n_features_in_ - seq_df.shape[1]):
                 seq_df[f"extra_{i}"] = 0.0
@@ -160,7 +173,7 @@ if st.button("Run PM2.5 Forecast & Plot Telemetry"):
         scaled_input = scaler.transform(seq_df.values)
         model_tensor = np.expand_dims(scaled_input, axis=0)
 
-        # Predict
+        # Run inference
         raw_pred = lstm_model.predict(model_tensor, verbose=0)
         pred_pm25 = float(raw_pred[0][0] * np.sqrt(scaler.var_[0]) + scaler.mean_[0])
         pred_pm25 = max(0.0, pred_pm25)
