@@ -1,7 +1,8 @@
 streamlit
 numpy<2.0.0
-pandas
+pandas<2.2.0
 joblib
 scikit-learn
 xgboost
 tensorflow-cpu
+matplotlib
