@@ -12,7 +12,7 @@ st.set_page_config(page_title="PM2.5 Early Warning System", layout="wide")
 st.title("PM2.5 Real-Time Forecasting & Knowledge-Guided Modular Architecture")
 st.markdown("""
 This production-ready gateway demonstrates the **2-Layer LSTM ($T=24$)** architecture 
-proposed in our KSE 2026 submission. It maps historical meteorological telemetry to 
+proposed. It maps historical meteorological telemetry to 
 next-hour particulate concentration ($\mu\text{g/m}^3$) with $R^2 = 0.9523$.
 """)
 
