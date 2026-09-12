@@ -119,7 +119,6 @@ if st.button("Run PM2.5 Forecast & Plot Telemetry"):
     if lstm_model is None or scaler is None:
         st.error("Model artifacts not loaded.")
     else:
-        # Dynamic physical trajectory factor mapping
         if wind_dir == "NW":
             dispersion_rate = -1.2 * (wnd_spd / 5.0)
             cum_wind = wnd_spd * 12.0
@@ -152,20 +151,30 @@ if st.button("Run PM2.5 Forecast & Plot Telemetry"):
 
         all_cols = ["pm2.5"] + [col for col in xgb_features if col != "pm2.5"]
 
-        # Simulate realistic dynamic trajectory over the last 24 hours
+        # --- DYNAMIC TRAJECTORY SIMULATION ---
         history_records = []
         trajectory = []
-        sim_val = float(baseline_pm25)
         
-        for step in range(24):
-            sim_val = max(5.0, sim_val + dispersion_rate + np.sin(step / 2.0) * 1.5)
-            trajectory.append(sim_val)
+        if "Winter" in selected_case:
+            start_pm = max(10.0, baseline_pm25 * 0.7)
+            trend = np.linspace(0, baseline_pm25 - start_pm, 24)
+            trajectory = start_pm + trend + np.sin(np.linspace(0, 3*np.pi, 24)) * 5
+        elif "NW Wind" in selected_case:
+            start_pm = baseline_pm25 * 2.2
+            drop_curve = np.linspace(start_pm, baseline_pm25, 24)
+            drop_curve[-8:] = np.linspace(drop_curve[-8], baseline_pm25, 8)
+            trajectory = drop_curve
+        elif "Storm" in selected_case:
+            trajectory = [baseline_pm25 + 15 * np.sin(i/3) for i in range(24)]
+            trajectory[-6:] = np.linspace(trajectory[-6], baseline_pm25, 6)
+        else:
+            trajectory = [max(5.0, baseline_pm25 + (i - 12) * dispersion_rate * 2) for i in range(24)]
 
         for i in range(24):
             step_dict = {}
             for col_idx, col in enumerate(all_cols):
                 if col == "pm2.5":
-                    step_dict[col] = trajectory[i]
+                    step_dict[col] = float(trajectory[i])
                 elif col in input_mapping:
                     step_dict[col] = input_mapping[col]
                 else:
